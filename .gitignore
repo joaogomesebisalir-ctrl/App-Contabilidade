@@ -8,3 +8,8 @@ instance/
 
 .env.*
 !.env.example
+
+node_modules/
+cloud/public/
+cloud/.wrangler/
+.dev.vars*

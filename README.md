@@ -70,3 +70,7 @@ node --check app/static/app.js
 Os testes usam dados explicitamente fictícios numa pasta temporária. Cobrem autenticação, CSRF, ficheiros, OCR real, QR fiscal, pagamentos parciais/repartidos, duplicados, entidades, revogação, exclusão recuperável, exportação e restauro. O teste Chromium percorre os fluxos pela interface, inclui conta separada de contabilista e verifica o layout de telemóvel. Os dados de teste não são inseridos na instalação real.
 
 O código foi criado neste checkout. A execução local e a configuração guardada do ambiente não equivalem a publicação num domínio nem a envio do código para o GitHub.
+
+## Alojamento Cloudflare
+
+A versão Cloudflare e os passos de migração/teste estão em [cloud/README.md](cloud/README.md). Nesta versão, o OCR corre no navegador e a API usa Supabase privado; as instruções de Tesseract nativo acima aplicam-se à versão Flask/Render. A publicação depende de acesso privado à conta Cloudflare e deve ser confirmada no domínio público.

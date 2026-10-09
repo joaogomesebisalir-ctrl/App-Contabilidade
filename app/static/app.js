@@ -160,6 +160,8 @@ async function init() {
     state.user = r.user;
     state.csrf = r.csrf;
     state.setupRequiresToken = r.setup_requires_token;
+    state.browserExtraction = !!r.browser_extraction;
+    window.ContaCloud?.configure({ api, enabled: state.browserExtraction });
     if (!r.user) return authPage(r.needs_setup);
     if (!admin()) {
       state.works = [];
@@ -184,6 +186,13 @@ async function init() {
       }
     }
     await navigate(state.page);
+    if (state.browserExtraction && admin()) {
+      setTimeout(async () => {
+        try {
+          await window.ContaCloud.resume(await api("/api/documents"));
+        } catch {}
+      }, 100);
+    }
   } catch (e) {
     $("#app").innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   }
@@ -365,7 +374,7 @@ function renderDocTable() {
       );
 }
 function docTable(docs) {
-  return `<div class="table-wrap"><table><thead><tr><th>Documento</th><th>Fornecedor</th><th>Data</th><th>Estados</th><th class="amount">Total com IVA</th><th></th></tr></thead><tbody>${docs.map((d) => `<tr><td><div class="document-title"><span class="fileicon">${esc(d.filename.split(".").pop().toUpperCase().slice(0,4))}</span><div><button class="table-link file-name" data-action="document" data-id="${d.id}">${esc(d.metadata.number || d.filename)}</button><div class="muted">${esc(d.metadata.type || "Tipo por confirmar")} · ${esc(state.entities.find((e) => e.id === d.entity_id)?.name || "")}</div></div></div></td><td>${esc(d.metadata.supplier || "Por confirmar")}<div class="muted">${esc(d.metadata.supplier_nif || "")}</div></td><td>${date(d.metadata.date)}</td><td><div class="badges">${badge(d.review)}${badge(d.payment)}${badge(d.accounting)}</div></td><td class="amount"><b>${euro(d.metadata.total)}</b><div class="muted">${cents(d.paid_cents)} pagos</div></td><td>${btn("Abrir", "document", `data-id="${d.id}"`, "small")}</td></tr>`).join("")}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>Documento</th><th>Fornecedor</th><th>Data</th><th>Estados</th><th class="amount">Total com IVA</th><th></th></tr></thead><tbody>${docs.map((d) => `<tr><td><div class="document-title"><span class="fileicon">${esc(d.filename.split(".").pop().toUpperCase().slice(0, 4))}</span><div><button class="table-link file-name" data-action="document" data-id="${d.id}">${esc(d.metadata.number || d.filename)}</button><div class="muted">${esc(d.metadata.type || "Tipo por confirmar")} · ${esc(state.entities.find((e) => e.id === d.entity_id)?.name || "")}</div></div></div></td><td>${esc(d.metadata.supplier || "Por confirmar")}<div class="muted">${esc(d.metadata.supplier_nif || "")}</div></td><td>${date(d.metadata.date)}</td><td><div class="badges">${badge(d.review)}${badge(d.payment)}${badge(d.accounting)}</div></td><td class="amount"><b>${euro(d.metadata.total)}</b><div class="muted">${cents(d.paid_cents)} pagos</div></td><td>${btn("Abrir", "document", `data-id="${d.id}"`, "small")}</td></tr>`).join("")}</tbody></table></div>`;
 }
 async function uploadFiles(files, privateMode = false) {
   if (!admin()) return;
@@ -394,8 +403,9 @@ async function performUpload(files, entity, privateMode) {
     const status = $("#upload-status");
     if (status) status.textContent = `A carregar ${file.name}…`;
     try {
+      let uploaded;
       try {
-        await api("/api/documents", { method: "POST", body: form });
+        uploaded = await api("/api/documents", { method: "POST", body: form });
       } catch (e) {
         if (
           e.status !== 409 ||
@@ -403,7 +413,12 @@ async function performUpload(files, entity, privateMode) {
         )
           throw e;
         form.append("confirm_duplicate", "true");
-        await api("/api/documents", { method: "POST", body: form });
+        uploaded = await api("/api/documents", { method: "POST", body: form });
+      }
+      if (state.browserExtraction) {
+        window.ContaCloud.process(uploaded.document.id, file, (text) => {
+          if (status?.isConnected) status.textContent = text;
+        }).catch((error) => toast(error.message, true));
       }
       count++;
     } catch (e) {
@@ -1111,6 +1126,10 @@ document.addEventListener("click", async (event) => {
         break;
       case "retry-ocr":
         await post(`/api/documents/${id}/retry`, {});
+        if (state.browserExtraction)
+          window.ContaCloud.process(Number(id)).catch((error) =>
+            toast(error.message, true),
+          );
         toast("Extração novamente em fila.");
         await openDocument(id);
         break;
@@ -1355,9 +1374,18 @@ document.addEventListener("submit", async (event) => {
         break;
       case "bank-preview-form": {
         const fd = new FormData(form);
+        const sourceFile = fd.get("file");
+        if (state.browserExtraction) {
+          const preview = await window.ContaCloud.preview(sourceFile);
+          if (preview) fd.append("preview", JSON.stringify(preview));
+        }
         let r = await api("/api/bank/preview", { method: "POST", body: fd });
         if (r.pending) {
           const source = r.source_id;
+          if (state.browserExtraction)
+            window.ContaCloud.process(source, sourceFile).catch((error) =>
+              toast(error.message, true),
+            );
           modal(
             "A processar extrato PDF",
             `<p>O original foi guardado. A extração decorre em segundo plano.</p><p class="muted">A aguardar movimentos para revisão…</p>${btn("Consultar original / repetir extração", "document", `data-id="${source}"`, "small")}`,
@@ -1438,9 +1466,10 @@ document.addEventListener("submit", async (event) => {
       case "export-form": {
         const entity = Number(d.entity_id),
           period = d.period;
-        window.location.assign(
-          `/api/export?entity_id=${entity}&period=${encodeURIComponent(period)}`,
-        );
+        const exportUrl = `/api/export?entity_id=${entity}&period=${encodeURIComponent(period)}`;
+        if (state.browserExtraction) {
+          await window.ContaCloud.archive(exportUrl, (text) => toast(text));
+        } else window.location.assign(exportUrl);
         break;
       }
       case "invite-form": {

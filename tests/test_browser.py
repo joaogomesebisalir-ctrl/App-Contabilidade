@@ -1,5 +1,5 @@
 """Real browser end-to-end test; uses fictional data in a disposable database."""
-import io, threading, os, uuid
+import io, threading, os, uuid, subprocess, json, select
 import pytest
 import psycopg
 from playwright.sync_api import sync_playwright
@@ -8,15 +8,26 @@ from reportlab.pdfgen import canvas
 from app import create_app
 
 
-@pytest.mark.parametrize('backend',['sqlite','postgres'])
+@pytest.mark.parametrize('backend',['sqlite','postgres','cloudflare'])
 def test_browser_six_workflows_and_mobile(tmp_path,backend):
     config={'DATA_DIR':tmp_path,'TESTING':True}
     if backend=='postgres':
         if not os.environ.get('PG_TEST_URL'): pytest.skip('PG_TEST_URL required for PostgreSQL browser checks')
         config.update(DATABASE_URL=os.environ['PG_TEST_URL'],DB_SCHEMA='cc_browser_'+uuid.uuid4().hex[:12],SETUP_TOKEN='fictitious-browser-setup-code')
-    app=create_app(config)
-    server=make_server('127.0.0.1',0,app,threaded=True); thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
-    url=f'http://127.0.0.1:{server.server_port}'
+    process=None
+    if backend=='cloudflare':
+        if not os.environ.get('PG_TEST_URL'): pytest.skip('PG_TEST_URL required for Cloudflare integration')
+        process=subprocess.Popen(['node','cloud/scripts/test-server.mjs'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        ready,_,_=select.select([process.stdout],[],[],30)
+        assert ready,'Cloudflare local server did not start'
+        line=process.stdout.readline()
+        assert line,process.stderr.read()
+        url=json.loads(line)['url']
+        app=None;server=None
+    else:
+        app=create_app(config)
+        server=make_server('127.0.0.1',0,app,threaded=True); thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
+        url=f'http://127.0.0.1:{server.server_port}'
     errors=[]
     try:
         with sync_playwright() as p:
@@ -28,7 +39,7 @@ def test_browser_six_workflows_and_mobile(tmp_path,backend):
             page.get_by_label('Nome',exact=True).fill('Demonstração automatizada')
             page.get_by_label('Email',exact=True).fill('admin@example.test')
             page.get_by_label('Palavra-passe',exact=True).fill('uma-palavra-passe-segura-123')
-            if backend=='postgres': page.get_by_label('Código de instalação',exact=True).fill(config['SETUP_TOKEN'])
+            if backend in ('postgres','cloudflare'): page.get_by_label('Código de instalação',exact=True).fill(config.get('SETUP_TOKEN','fictitious-edge-setup-code'))
             page.get_by_role('button',name='Criar o meu espaço').click()
             page.get_by_role('button',name='Definições',exact=False).click()
             page.get_by_role('button',name='Nova entidade').click()
@@ -45,11 +56,16 @@ def test_browser_six_workflows_and_mobile(tmp_path,backend):
             for _ in range(30):
                 if page.locator('#modal').get_by_text('Extração concluída',exact=True).count(): break
                 page.wait_for_timeout(300); page.get_by_role('button',name='Atualizar extração',exact=True).click()
+            status=page.request.get(url+'/api/documents/1').json()
+            assert status['ocr_status']=='completed',status.get('ocr_error')
+            page.locator('#modal').get_by_text('Extração concluída',exact=True).wait_for()
             page.on('dialog',lambda d:d.accept())
             page.get_by_role('button',name='Aplicar sugestões para revisão').click()
             page.get_by_label('Tipo',exact=True).select_option('Fatura')
             page.get_by_label('Revisão',exact=True).select_option('validado')
-            page.get_by_role('button',name='Guardar revisão').click()
+            with page.expect_response(lambda r: '/api/documents/1' in r.url and r.request.method=='PUT') as saved:
+                page.get_by_role('button',name='Guardar revisão').click()
+            assert saved.value.status==200,saved.value.json()
             page.locator('#toast').get_by_text('Documento guardado.',exact=True).wait_for()
             page.get_by_role('button',name='×',exact=True).click()
             page.get_by_role('button',name='Movimentos bancários',exact=False).click()
@@ -144,8 +160,11 @@ def test_browser_six_workflows_and_mobile(tmp_path,backend):
             assert errors==[],errors
             browser.close()
     finally:
-        app.extensions['ocr_stop'].set()
-        server.shutdown()
+        if app:
+            app.extensions['ocr_stop'].set()
+            server.shutdown()
+        if process:
+            process.terminate();process.wait(timeout=15)
 
         if backend=='postgres':
             from psycopg import sql

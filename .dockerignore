@@ -8,3 +8,8 @@ instance
 .env
 .env.*
 *.zip
+
+node_modules
+cloud/public
+cloud/.wrangler
+.dev.vars*
