@@ -70,7 +70,10 @@ class Database:
         options={'sslmode':'disable'} if local_test else {'sslmode':'verify-full','sslrootcert':os.environ.get('APP_PG_SSL_ROOT_CERT','/etc/ssl/certs/ca-certificates.crt')}
         try:
             con=psycopg.connect(self.url,row_factory=dict_row,connect_timeout=15,
-                options=f'-c search_path={self.schema},pg_catalog',prepare_threshold=None,**options)
+                autocommit=True,prepare_threshold=None,**options)
+            # Poolers need not support the PostgreSQL startup 'options' parameter.
+            con.execute(sql.SQL('SET search_path TO {}, pg_catalog').format(sql.Identifier(self.schema)))
+            con.autocommit=False
         except psycopg.OperationalError as exc:
             # Connection errors can contain credential-bearing DSNs; never expose them to clients.
             raise RuntimeError('Não foi possível ligar à base de dados PostgreSQL com TLS verificado. Confirme a ligação, as credenciais e a CA no alojamento.') from None
