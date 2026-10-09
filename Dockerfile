@@ -1,7 +1,8 @@
 FROM python:3.12-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     APP_HOST=0.0.0.0 PORT=10000 APP_HTTPS=1 \
-    APP_DATA_DIR=/tmp/conta-clara-cache APP_REQUIRE_EXTERNAL_STORAGE=1
+    APP_DATA_DIR=/tmp/conta-clara-cache APP_REQUIRE_EXTERNAL_STORAGE=1 \
+    APP_PG_SSL_ROOT_CERT=/app/app/certs/supabase-ca-2021.crt
 RUN --mount=type=secret,id=build_ca,target=/tmp/build-ca,mode=0444 \
     if [ -f /tmp/build-ca ]; then export SSL_CERT_FILE=/tmp/build-ca; \
     printf 'Acquire::https::CaInfo "/tmp/build-ca";\n' > /etc/apt/apt.conf.d/99build-ca; fi \
