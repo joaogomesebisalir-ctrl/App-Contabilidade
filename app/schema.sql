@@ -1,0 +1,18 @@
+PRAGMA foreign_keys=ON;
+CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE COLLATE NOCASE, name TEXT NOT NULL, password TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('admin','accountant')), active INTEGER NOT NULL DEFAULT 1, created TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS entities(id INTEGER PRIMARY KEY,name TEXT NOT NULL,nif TEXT NOT NULL,kind TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS documents(id INTEGER PRIMARY KEY,entity_id INTEGER NOT NULL REFERENCES entities(id),filename TEXT NOT NULL,storage TEXT NOT NULL UNIQUE,mime TEXT NOT NULL,sha256 TEXT NOT NULL,created TEXT NOT NULL,metadata TEXT NOT NULL DEFAULT '{}',review TEXT NOT NULL DEFAULT 'por_rever',accounting TEXT NOT NULL DEFAULT 'por_tratar',visibility TEXT NOT NULL DEFAULT 'financial',work_id INTEGER,deleted TEXT,ocr_status TEXT NOT NULL DEFAULT 'queued',ocr_error TEXT,extraction TEXT NOT NULL DEFAULT '{}');
+CREATE TABLE IF NOT EXISTS grants(id INTEGER PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),entity_id INTEGER NOT NULL REFERENCES entities(id),all_documents INTEGER NOT NULL DEFAULT 0,bank_access INTEGER NOT NULL DEFAULT 0,UNIQUE(user_id,entity_id));
+CREATE TABLE IF NOT EXISTS grant_documents(grant_id INTEGER NOT NULL REFERENCES grants(id) ON DELETE CASCADE,document_id INTEGER NOT NULL REFERENCES documents(id),PRIMARY KEY(grant_id,document_id));
+CREATE TABLE IF NOT EXISTS invitations(id INTEGER PRIMARY KEY,email TEXT NOT NULL,token_hash TEXT NOT NULL UNIQUE,scope TEXT NOT NULL,expires TEXT NOT NULL,used TEXT,created TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS movements(id INTEGER PRIMARY KEY,entity_id INTEGER NOT NULL REFERENCES entities(id),bank TEXT NOT NULL,account TEXT NOT NULL,date TEXT NOT NULL,value_date TEXT,description TEXT NOT NULL,amount INTEGER NOT NULL,balance INTEGER,source_id INTEGER REFERENCES documents(id),classification TEXT NOT NULL DEFAULT 'por_classificar',fingerprint TEXT NOT NULL,created TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS allocations(id INTEGER PRIMARY KEY,movement_id INTEGER NOT NULL REFERENCES movements(id),document_id INTEGER NOT NULL REFERENCES documents(id),amount INTEGER NOT NULL CHECK(amount>0),created TEXT NOT NULL,user_id INTEGER NOT NULL REFERENCES users(id));
+CREATE TABLE IF NOT EXISTS comments(id INTEGER PRIMARY KEY,document_id INTEGER NOT NULL REFERENCES documents(id),user_id INTEGER NOT NULL REFERENCES users(id),body TEXT NOT NULL,created TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS requests(id INTEGER PRIMARY KEY,entity_id INTEGER NOT NULL REFERENCES entities(id),document_id INTEGER REFERENCES documents(id),user_id INTEGER NOT NULL REFERENCES users(id),body TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',created TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS request_replies(id INTEGER PRIMARY KEY,request_id INTEGER NOT NULL REFERENCES requests(id),user_id INTEGER NOT NULL REFERENCES users(id),body TEXT NOT NULL,created TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS private_records(id INTEGER PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN ('works','materials','contacts','expenses')),data TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,user_id INTEGER REFERENCES users(id),action TEXT NOT NULL,resource TEXT NOT NULL,resource_id INTEGER,detail TEXT NOT NULL DEFAULT '{}',created TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS login_attempts(key TEXT PRIMARY KEY,count INTEGER NOT NULL,last REAL NOT NULL);
+CREATE INDEX IF NOT EXISTS docs_entity ON documents(entity_id);
+CREATE INDEX IF NOT EXISTS movements_entity ON movements(entity_id);
+CREATE INDEX IF NOT EXISTS allocations_doc ON allocations(document_id);

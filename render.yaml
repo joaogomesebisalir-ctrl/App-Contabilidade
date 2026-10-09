@@ -1,0 +1,28 @@
+# Free web server; durable database and originals live in Supabase, not in Render's disk.
+services:
+  - type: web
+    name: conta-clara
+    runtime: docker
+    plan: free
+    region: frankfurt
+    healthCheckPath: /health
+    autoDeployTrigger: "off"
+    envVars:
+      - key: APP_SECRET_KEY
+        generateValue: true
+      - key: APP_SETUP_TOKEN
+        generateValue: true
+      - key: APP_HTTPS
+        value: "1"
+      - key: APP_REQUIRE_EXTERNAL_STORAGE
+        value: "1"
+      - key: APP_STORAGE_BACKEND
+        value: supabase
+      - key: SUPABASE_BUCKET
+        value: conta-clara
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_STORAGE_KEY
+        sync: false
